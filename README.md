@@ -15,12 +15,12 @@ Centro de infoentretenimiento para **Jeep Liberty 2010** (verde natural metálic
 | Bundle Android (`pnpm exec expo export --platform android`) | ✅ 4 033 módulos, bundle Hermes ~7 MB |
 | Configuración Expo (`pnpm exec expo config --type public`) | ✅ Válida para SDK 58 |
 | `pnpm exec expo-doctor` | ✅ 20/20 (verificado tras `git init`) |
-| APK / AAB | ⚠️ **No generados en este entorno** |
-| Build iOS | ⚠️ **No generado** (requiere macOS o EAS + credenciales Apple) |
+| APK preview | ✅ **Generado** con EAS Build (perfil `preview`, 2026-11-06) |
+| AAB / Build iOS | ⚠️ **Pendientes** (AAB: perfil `production`; iOS: requiere credenciales Apple) |
 
 **Detalle de `expo-doctor` (20/20):** ahora que el directorio es un repositorio Git y Git está en el `PATH`, las 20 comprobaciones pasan. Las 2 que antes fallaban dependían de Git (`.expo` ignorado y sincronización CNG para `android/`/`ios/`, ambas ya en `.gitignore`).
 
-**Por qué no hay APK/AAB todavía:** el equipo donde se desarrolló no tiene Android SDK (`ANDROID_HOME` no existe). La sesión de EAS existe, pero el token actual está limitado al rol **Viewer** y el proyecto no está vinculado (`projectId` ausente). Se intentó `eas init` y EAS respondió que los permisos concedidos no permiten crear proyectos. Sin permisos de escritura no se puede crear el proyecto ni iniciar un build. El código, la configuración de EAS y los comandos exactos sí están listos. Consulta [Compilar APK y AAB](#compilar-apk-y-aab).
+**APK generado (2026-11-06):** `eas build --platform android --profile preview` terminó con estado **FINISHED** (build `cf5036e0-bd4d-4407-98f4-0bc54277591a`, commit `1b61be3`, versión 1.0.0 v1, SDK 58). Artefacto: `dist/jeep-connect-preview.apk` (~109 MB, no se commitea porque `dist/` está gitignored). Proyecto EAS vinculado: `66c7e78d-8e83-41d7-82d5-2b7f41ec0675`, owner `ing.fhernandez`. Repo GitHub: https://github.com/rhflores441-sudo/jeep-connec. Para el AAB y iOS sigue la guía en [Compilar APK y AAB](#compilar-apk-y-aab).
 
 El arte del vehículo es una **ilustración SVG original** (`src/components/vehicle/JeepLiberty.tsx`), no una fotografía ni un render oficial. Puedes sustituirla por una imagen propia; consulta [Arte del vehículo](#arte-del-vehículo).
 
