@@ -1,0 +1,8 @@
+name = "jeep-connect-spotify"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+APP_RETURN_URI = "jeepconnect://spotify-callback"
+# Cambia esto por la URL pública de TU Worker cuando lo despliegues:
+SPOTIFY_REDIRECT_URI = "https://jeep-connect-spotify.TU-SUBDOMINIO.workers.dev/callback"
