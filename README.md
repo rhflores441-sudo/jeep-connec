@@ -14,15 +14,13 @@ Centro de infoentretenimiento para **Jeep Liberty 2010** (verde natural metálic
 | ESLint (`pnpm exec expo lint`) | ✅ 0 errores / 0 advertencias |
 | Bundle Android (`pnpm exec expo export --platform android`) | ✅ 4 033 módulos, bundle Hermes ~7 MB |
 | Configuración Expo (`pnpm exec expo config --type public`) | ✅ Válida para SDK 58 |
-| `pnpm exec expo-doctor` | ⚠️ 18/20; los 2 fallos son falsos positivos de este entorno (ver detalle abajo) |
+| `pnpm exec expo-doctor` | ✅ 20/20 (verificado tras `git init`) |
 | APK / AAB | ⚠️ **No generados en este entorno** |
 | Build iOS | ⚠️ **No generado** (requiere macOS o EAS + credenciales Apple) |
 
-**Detalle de `expo-doctor` (18/20):** las 2 comprobaciones que fallan son falsos positivos de este entorno, no errores del proyecto:
-1. *“Check for common project setup issues”* (.expo no ignorado por Git): falla porque el directorio **no es un repositorio Git** y doctor no puede verificarlo contra Git. `.gitignore` sí incluye `.expo` (líneas 7-8). Desaparece al hacer `git init`.
-2. *“Falla de sincronización non-CNG”*: `android/` existe localmente porque se generó con prebuild, pero está **gitignored** (`/android` y `/ios` en `.gitignore`). En EAS Build se regenera desde `app.json`; `ios/` ni siquiera existe aquí. No afecta a builds en la nube.
+**Detalle de `expo-doctor` (20/20):** ahora que el directorio es un repositorio Git y Git está en el `PATH`, las 20 comprobaciones pasan. Las 2 que antes fallaban dependían de Git (`.expo` ignorado y sincronización CNG para `android/`/`ios/`, ambas ya en `.gitignore`).
 
-**Por qué no hay APK/AAB todavía:** el equipo donde se desarrolló no tiene Android SDK (`ANDROID_HOME` no existe). La sesión de EAS existe, pero el token actual está limitado al rol **Viewer**, el proyecto no está vinculado (`projectId` ausente) y el directorio no es un repositorio Git. Se intentó `eas init` y EAS respondió que los permisos concedidos no permiten crear proyectos. Sin permisos de escritura no se puede crear el proyecto ni iniciar un build. El código, la configuración de EAS y los comandos exactos sí están listos. Consulta [Compilar APK y AAB](#compilar-apk-y-aab).
+**Por qué no hay APK/AAB todavía:** el equipo donde se desarrolló no tiene Android SDK (`ANDROID_HOME` no existe). La sesión de EAS existe, pero el token actual está limitado al rol **Viewer** y el proyecto no está vinculado (`projectId` ausente). Se intentó `eas init` y EAS respondió que los permisos concedidos no permiten crear proyectos. Sin permisos de escritura no se puede crear el proyecto ni iniciar un build. El código, la configuración de EAS y los comandos exactos sí están listos. Consulta [Compilar APK y AAB](#compilar-apk-y-aab).
 
 El arte del vehículo es una **ilustración SVG original** (`src/components/vehicle/JeepLiberty.tsx`), no una fotografía ni un render oficial. Puedes sustituirla por una imagen propia; consulta [Arte del vehículo](#arte-del-vehículo).
 
