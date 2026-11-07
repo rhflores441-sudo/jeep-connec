@@ -15,7 +15,7 @@ Centro de infoentretenimiento para **Jeep Liberty 2010** (verde natural metálic
 | Bundle Android (`pnpm exec expo export --platform android`) | ✅ 4 033 módulos, bundle Hermes ~7 MB |
 | Configuración Expo (`pnpm exec expo config --type public`) | ✅ Válida para SDK 58 |
 | `pnpm exec expo-doctor` | ✅ 20/20 (verificado tras `git init`) |
-| APK preview | ✅ **Generado** (EAS + parche de bundle Hermes, 2026-11-06) |
+| APK preview | ✅ **Generado** (EAS build nuevo con Spotify, 2026-11-07) |
 | AAB / Build iOS | ⚠️ **Pendientes** (AAB: perfil `production`; iOS: requiere credenciales Apple) |
 
 **Detalle de `expo-doctor` (20/20):** ahora que el directorio es un repositorio Git y Git está en el `PATH`, las 20 comprobaciones pasan. Las 2 que antes fallaban dependían de Git (`.expo` ignorado y sincronización CNG para `android/`/`ios/`, ambas ya en `.gitignore`).
