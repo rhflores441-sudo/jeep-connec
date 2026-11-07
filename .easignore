@@ -1,0 +1,20 @@
+# EAS Build — archivos que NO deben subirse al build en la nube.
+# docs: https://docs.expo.dev/eas-build/advanced/#easignore
+node_modules/
+.expo/
+dist/
+web-build/
+.vscode/
+build-patch/
+build-release.log
+*.log
+scripts/fetch-gradle*.ps1
+scripts/install-gradle.ps1
+scripts/patch-apk.ps1
+ios/
+android/
+.kotlin/
+.env
+.env.local
+.env*.local
+.git/

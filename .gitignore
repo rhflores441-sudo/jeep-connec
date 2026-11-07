@@ -36,6 +36,10 @@ yarn-error.*
 .env.local
 .env*.local
 
+# local build tooling (no se commitea)
+build-patch/
+build-release.log
+
 # typescript
 *.tsbuildinfo
 
