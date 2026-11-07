@@ -15,12 +15,14 @@ Centro de infoentretenimiento para **Jeep Liberty 2010** (verde natural metálic
 | Bundle Android (`pnpm exec expo export --platform android`) | ✅ 4 033 módulos, bundle Hermes ~7 MB |
 | Configuración Expo (`pnpm exec expo config --type public`) | ✅ Válida para SDK 58 |
 | `pnpm exec expo-doctor` | ✅ 20/20 (verificado tras `git init`) |
-| APK preview | ✅ **Generado** con EAS Build (perfil `preview`, 2026-11-06) |
+| APK preview | ✅ **Generado** (EAS + parche de bundle Hermes, 2026-11-06) |
 | AAB / Build iOS | ⚠️ **Pendientes** (AAB: perfil `production`; iOS: requiere credenciales Apple) |
 
 **Detalle de `expo-doctor` (20/20):** ahora que el directorio es un repositorio Git y Git está en el `PATH`, las 20 comprobaciones pasan. Las 2 que antes fallaban dependían de Git (`.expo` ignorado y sincronización CNG para `android/`/`ios/`, ambas ya en `.gitignore`).
 
-**APK generado (2026-11-06):** `eas build --platform android --profile preview` terminó con estado **FINISHED** (build `cf5036e0-bd4d-4407-98f4-0bc54277591a`, commit `1b61be3`, versión 1.0.0 v1, SDK 58). Artefacto: `dist/jeep-connect-preview.apk` (~109 MB, no se commitea porque `dist/` está gitignored). Proyecto EAS vinculado: `66c7e78d-8e83-41d7-82d5-2b7f41ec0675`, owner `ing.fhernandez`. Repo GitHub: https://github.com/rhflores441-sudo/jeep-connec. Para el AAB y iOS sigue la guía en [Compilar APK y AAB](#compilar-apk-y-aab).
+**APK instalable (2026-11-06):** parte del APK `preview` de EAS (build `cf5036e0-bd4d-4407-98f4-0bc54277591a`, commit `1b61be3`, versión 1.0.0 v1, SDK 58) y se le reemplazó `assets/index.android.bundle` por un bundle Hermes recompilado localmente con los cambios más recientes. Se alineó y firmó con el keystore de depuración del proyecto (`scripts/patch-apk.ps1`). Artefacto: `dist/jeep-connect-preview.apk` (~110 MB, no se commitea porque `dist/` está gitignored). Proyecto EAS vinculado: `66c7e78d-8e83-41d7-82d5-2b7f41ec0675`, owner `ing.fhernandez`. Repo GitHub: https://github.com/rhflores441-sudo/jeep-connec. Para el AAB y iOS sigue la guía en [Compilar APK y AAB](#compilar-apk-y-aab).
+
+> Como el APK parcheado usa la clave de depuración, la primera instalación exige desinstalar la versión firmada por EAS. Los parches posteriores se instalan encima sin borrar datos.
 
 El arte del vehículo es una **ilustración SVG original** (`src/components/vehicle/JeepLiberty.tsx`), no una fotografía ni un render oficial. Puedes sustituirla por una imagen propia; consulta [Arte del vehículo](#arte-del-vehículo).
 
@@ -82,17 +84,17 @@ El arte del vehículo es una **ilustración SVG original** (`src/components/vehi
 | Audio | `expo-audio` (radio y reproducción en segundo plano) |
 | Ubicación | `expo-location` |
 | Mapas | Teselas ráster OSM/CARTO + OSRM + Nominatim |
-| Build | EAS Build (`eas.json`) |
+| Build | Gradle local (`android/`, CNG), EAS Build o parche del bundle Hermes sobre un APK existente |
 
 ---
 
 ## Requisitos
 
 - Node.js 20 o superior y **pnpm 12** (el proyecto está fijado con `packageManager`). También funciona npm si se regenera el lockfile, pero no mezcles gestores.
-- Cuenta de Expo/EAS para compilar binarios en la nube.
+- Cuenta de Expo/EAS solo si vas a compilar en la nube (opcional).
 - Para builds locales: Android Studio + Android SDK, o Xcode en macOS.
 - Un teléfono con Expo Go para una vista rápida (con limitaciones) o un **development build** para todas las capacidades nativas.
-- Opcional: cuenta de Spotify Premium y una app creada en el dashboard de Spotify.
+- Opcional: cuenta de Spotify Premium y una app creada en el dashboard de Spotify. En modo desarrollo 2026, el dueño de la app debe tener Premium.
 
 ---
 
@@ -132,7 +134,7 @@ Todas las variables son públicas (`EXPO_PUBLIC_*`) y quedan dentro del bundle. 
 
 | Variable | Obligatoria | Descripción |
 | --- | --- | --- |
-| `EXPO_PUBLIC_SPOTIFY_CLIENT_ID` | Para Música | Client ID de la app de Spotify. PKCE no usa client secret. |
+| `EXPO_PUBLIC_SPOTIFY_CLIENT_ID` | No | Client ID de la app de Spotify. También se puede pegar en **Ajustes → Spotify** sin recompilar; el valor guardado en el dispositivo tiene prioridad. |
 | `EXPO_PUBLIC_SPOTIFY_REDIRECT_URI` | Para Música | Redirect URI **exactamente** registrada en Spotify. Debe ser HTTPS o loopback. |
 | `EXPO_PUBLIC_SPOTIFY_AUTH_PROXY_URL` | Recomendada en móvil | Base del proxy HTTPS que traduce el callback de Spotify al esquema `jeepconnect://`. |
 | `EXPO_PUBLIC_TILE_URL_DARK` | No | Plantilla de teselas oscuras. Por defecto CARTO Dark. |
@@ -219,6 +221,29 @@ Cuando el build termine, EAS entrega un enlace de descarga. Para instalar un APK
 adb install jeep-connect.apk
 ```
 
+### Parche rápido del APK (sin Gradle)
+
+Si solo cambió JavaScript/TypeScript, no hace falta compilar todo con Gradle ni volver a EAS. El APK existente puede recibir un bundle Hermes nuevo:
+
+```bash
+# 1. Genera el bundle de producción
+pnpm exec expo export:embed --platform android --dev false --minify true \
+  --entry-file node_modules/expo-router/entry.js \
+  --bundle-output build-patch/index.android.bundle.js \
+  --assets-dest build-patch/assets
+
+# 2. Compila el bytecode Hermes
+node_modules/.pnpm/hermes-compiler@*/node_modules/hermes-compiler/hermesc/win64-bin/hermesc.exe \
+  -emit-binary -O -w -out build-patch/index.android.bundle build-patch/index.android.bundle.js
+
+# 3. Reemplaza el bundle, alinea y firma (usa el APK base de dist/)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/patch-apk.ps1
+```
+
+El script `scripts/patch-apk.ps1` reemplaza `assets/index.android.bundle`, verifica el hash, ejecuta `zipalign` y firma con `android/app/debug.keystore` (alias `androiddebugkey`, contraseña `android`). El resultado queda en `build-patch/jeep-connect-patched.apk`.
+
+> Este APK usa la firma de depuración. La primera vez hay que desinstalar la versión firmada por EAS; después, los parches se instalan encima conservando los datos.
+
 ### Instalar el APK sin cable
 
 1. Descarga el APK desde el enlace de EAS en el teléfono.
@@ -249,6 +274,7 @@ Se guarda en el dispositivo, sin backend propio:
 | Dato | Almacenamiento |
 | --- | --- |
 | Tema, unidades, volumen, ecualizador, estilo de mapa, layout | AsyncStorage |
+| Client ID de Spotify pegado en Ajustes | AsyncStorage (dato público) |
 | Última ubicación manual y preferencias de ubicación | AsyncStorage |
 | Favoritos de radio, lugares e historial (máx. 60) | AsyncStorage |
 | Tokens de Spotify | `expo-secure-store` (Keychain/Keystore) |
@@ -314,7 +340,7 @@ Para sustituirla por una imagen propia:
 - **Spotify:** requiere cuenta y app configurada. En modo desarrollo, el dueño de la app debe tener Premium y solo se admiten 5 usuarios. Controlar la reproducción exige Premium y un dispositivo activo. En móvil, el callback necesita un proxy HTTPS. Ver [`docs/SPOTIFY.md`](docs/SPOTIFY.md).
 - **Radio Browser:** depende de servidores comunitarios; algunas emisoras están caídas o usan HTTP. Se habilitó tráfico claro para medios, pero no se puede garantizar disponibilidad.
 - **Clima/rutas:** dependen de servicios gratuitos sin SLA. La app maneja errores, pero no puede evitar caídas externas.
-- **Builds:** no se generaron binarios en este entorno. Ver el estado al inicio.
+- **Builds:** el APK actual se generó con EAS y luego se le parcheó el bundle Hermes localmente (`scripts/patch-apk.ps1`) porque el entorno no permite descargar todas las dependencias de Gradle. Un build completo con Gradle (`:app:assembleRelease`) o EAS sigue siendo la vía recomendada para publicar.
 
 ---
 

@@ -22,10 +22,12 @@ export type SpotifyTokens = {
   refreshToken: string | null;
   expiresAt: number;
   scope: string;
+  /** Client ID con el que se emitieron los tokens. */
+  clientId: string;
 };
 
-export function isSpotifyConfigured(): boolean {
-  return SPOTIFY.clientId.length > 0;
+export function isSpotifyConfigured(clientId: string = SPOTIFY.clientId): boolean {
+  return clientId.trim().length > 0;
 }
 
 /** URI que Spotify tiene registrada y usa para el intercambio de código. */
@@ -89,6 +91,7 @@ export async function loadTokens(): Promise<SpotifyTokens | null> {
       refreshToken: parsed.refreshToken ?? null,
       expiresAt: parsed.expiresAt,
       scope: parsed.scope ?? '',
+      clientId: parsed.clientId ?? '',
     };
   } catch {
     return null;
@@ -108,10 +111,11 @@ export async function exchangeCode(
   code: string,
   codeVerifier: string,
   redirectUri: string,
+  clientId: string = SPOTIFY.clientId,
 ): Promise<SpotifyTokens> {
   const response = await AuthSession.exchangeCodeAsync(
     {
-      clientId: SPOTIFY.clientId,
+      clientId,
       code,
       redirectUri,
       extraParams: { code_verifier: codeVerifier },
@@ -123,13 +127,17 @@ export async function exchangeCode(
     refreshToken: response.refreshToken ?? null,
     expiresAt: Date.now() + (response.expiresIn ?? 3600) * 1000,
     scope: response.scope ?? '',
+    clientId,
   };
 }
 
-export async function refreshTokens(refreshToken: string): Promise<SpotifyTokens> {
+export async function refreshTokens(
+  refreshToken: string,
+  clientId: string = SPOTIFY.clientId,
+): Promise<SpotifyTokens> {
   const response = await AuthSession.refreshAsync(
     {
-      clientId: SPOTIFY.clientId,
+      clientId,
       refreshToken,
     },
     spotifyDiscovery,
@@ -139,5 +147,6 @@ export async function refreshTokens(refreshToken: string): Promise<SpotifyTokens
     refreshToken: response.refreshToken ?? refreshToken,
     expiresAt: Date.now() + (response.expiresIn ?? 3600) * 1000,
     scope: response.scope ?? '',
+    clientId,
   };
 }

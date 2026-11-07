@@ -3,14 +3,16 @@ import {
   BookmarkCheck,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   LocateFixed,
   MapPin,
   Navigation,
   Route,
   Trash2,
+  X,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { radius, spacing } from '@/constants/theme';
 import { useSettings, useTheme } from '@/store/settings';
 import { useLibrary, type FavoritePlace } from '@/store/library';
@@ -19,7 +21,7 @@ import { searchPlaces, reversePlace, type Place } from '@/services/geocoding';
 import { fetchRoute, type RouteResult } from '@/services/routing';
 import { errorMessage } from '@/utils/http';
 import { formatCoord, formatDistance, formatDuration } from '@/utils/format';
-import type { Coordinate } from '@/utils/geo';
+import { haversineDistance, type Coordinate } from '@/utils/geo';
 import { AppText } from '@/components/ui/AppText';
 import { Card } from '@/components/ui/Card';
 import { Chip } from '@/components/ui/Chip';
@@ -60,10 +62,21 @@ function destinationFromFavorite(place: FavoritePlace): Destination {
 }
 
 export default function MapScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { settings } = useSettings();
-  const { effectiveCoordinates, locationLabel, permission, requestPermission, refresh, gpsStatus } =
-    useLocation();
+  const {
+    effectiveCoordinates,
+    locationLabel,
+    permission,
+    canAskAgain,
+    requestPermission,
+    refresh,
+    openSystemSettings,
+    gpsStatus,
+    heading,
+    accuracy,
+    isManualLocation,
+  } = useLocation();
   const { library, savePlace, removePlace } = useLibrary();
   const places = library.places;
 
@@ -81,16 +94,31 @@ export default function MapScreen() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [stepsOpen, setStepsOpen] = useState(false);
+  const [followUser, setFollowUser] = useState(false);
+  const [fitTo, setFitTo] = useState<{ points: Coordinate[]; token: number } | null>(null);
+  const routeRequestRef = useRef(0);
+  const routeAbortRef = useRef<AbortController | null>(null);
+  const lastAutoRerouteAtRef = useRef(0);
+  const initialCenterDoneRef = useRef(false);
 
-  const mapDark = settings.mapStyle === 'auto' ? isDark : settings.mapStyle === 'dark';
+  // Prioriza la legibilidad: el modo "auto" usa teselas claras. El usuario
+  // puede forzar el mapa oscuro desde Ajustes > Mapa.
+  const mapDark = settings.mapStyle === 'dark';
 
   useEffect(() => {
-    if (!effectiveCoordinates) return;
+    if (!effectiveCoordinates || !followUser) return;
     setCenter((previous) => {
       if (Math.abs(previous.latitude - effectiveCoordinates.latitude) < 1e-6) return previous;
       return effectiveCoordinates;
     });
-  }, [effectiveCoordinates]);
+  }, [effectiveCoordinates, followUser]);
+
+  useEffect(() => {
+    if (!effectiveCoordinates || initialCenterDoneRef.current || followUser) return;
+    initialCenterDoneRef.current = true;
+    setCenter(effectiveCoordinates);
+    setZoom(14);
+  }, [effectiveCoordinates, followUser]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -129,36 +157,79 @@ export default function MapScreen() {
   }, [query, effectiveCoordinates]);
 
   const calculateRoute = useCallback(
-    async (destination: Destination) => {
+    async (
+      destination: Destination,
+      options: { fit?: boolean; preserveFollow?: boolean } = {},
+    ) => {
+      const { fit = true, preserveFollow = false } = options;
       if (!effectiveCoordinates) {
         setRoute(null);
         setRouteError('Activa tu ubicación para calcular una ruta desde donde estás.');
         return;
       }
+      routeAbortRef.current?.abort();
+      const controller = new AbortController();
+      routeAbortRef.current = controller;
+      const requestId = ++routeRequestRef.current;
       setRouteLoading(true);
       setRouteError(null);
       try {
-        const result = await fetchRoute(effectiveCoordinates, destination);
+        const result = await fetchRoute(effectiveCoordinates, destination, { signal: controller.signal });
+        if (requestId !== routeRequestRef.current) return;
         setRoute(result);
         setStepsOpen(false);
-        const middle = {
-          latitude: (effectiveCoordinates.latitude + destination.latitude) / 2,
-          longitude: (effectiveCoordinates.longitude + destination.longitude) / 2,
-        };
-        setCenter(middle);
-        setZoom(result.distance > 60_000 ? 9 : result.distance > 20_000 ? 10 : result.distance > 6_000 ? 12 : 13);
+        if (!preserveFollow) setFollowUser(false);
+        if (fit) {
+          setFitTo({
+            points: result.geometry.length ? result.geometry : [effectiveCoordinates, destination],
+            token: requestId,
+          });
+        }
       } catch (error) {
+        if (controller.signal.aborted || requestId !== routeRequestRef.current) return;
         setRoute(null);
         setRouteError(errorMessage(error, 'No fue posible calcular la ruta.'));
       } finally {
-        setRouteLoading(false);
+        if (requestId === routeRequestRef.current) setRouteLoading(false);
       }
     },
     [effectiveCoordinates],
   );
 
+  useEffect(() => {
+    return () => {
+      routeAbortRef.current?.abort();
+    };
+  }, []);
+
+  const clearDestination = useCallback(() => {
+    routeAbortRef.current?.abort();
+    routeRequestRef.current += 1;
+    setSelected(null);
+    setRoute(null);
+    setRouteError(null);
+    setRouteLoading(false);
+    setStepsOpen(false);
+  }, []);
+
+  const openExternalMaps = useCallback((destination: Destination) => {
+    const lat = destination.latitude;
+    const lng = destination.longitude;
+    const label = encodeURIComponent(destination.name);
+    const url =
+      Platform.OS === 'ios'
+        ? `maps://?q=${label}&ll=${lat},${lng}`
+        : `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+    Linking.openURL(url).catch(() => {
+      void Linking.openURL(
+        `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+      );
+    });
+  }, []);
+
   const chooseDestination = useCallback(
     (destination: Destination) => {
+      setFollowUser(false);
       setSelected(destination);
       setQuery('');
       setResults([]);
@@ -179,6 +250,7 @@ export default function MapScreen() {
       latitude: coordinate.latitude,
       longitude: coordinate.longitude,
     };
+    setFollowUser(false);
     setSelected(destination);
     setRoute(null);
     setRouteError(null);
@@ -199,12 +271,16 @@ export default function MapScreen() {
 
   const centerOnUser = useCallback(async () => {
     if (effectiveCoordinates) {
+      setFollowUser(true);
       setCenter(effectiveCoordinates);
       setZoom(15);
       return;
     }
     const granted = await requestPermission();
-    if (granted) await refresh();
+    if (granted) {
+      setFollowUser(true);
+      await refresh();
+    }
   }, [effectiveCoordinates, refresh, requestPermission]);
 
   const markers = useMemo<MapMarker[]>(() => {
@@ -226,6 +302,46 @@ export default function MapScreen() {
 
   const isSaved = selected ? places.some((place) => place.id === selected.id) : false;
   const showSearchPanel = query.trim().length >= 3;
+
+  const routeDeviationMeters = useMemo(() => {
+    if (!route?.geometry?.length || !effectiveCoordinates) return null;
+    let min = Infinity;
+    const points = route.geometry;
+    for (let i = 0; i < points.length; i += 1) {
+      const d = haversineDistance(effectiveCoordinates, points[i]);
+      if (d < min) min = d;
+      if (min < 25) break;
+    }
+    return min;
+  }, [effectiveCoordinates, route]);
+
+  const displaySteps = useMemo(() => {
+    if (!route?.steps?.length) return [];
+    return route.steps.filter((step) => step.type !== 'arrive' || step.distance > 0).slice(0, 16);
+  }, [route]);
+
+  const nextStepInfo = useMemo(() => {
+    if (!displaySteps.length || !effectiveCoordinates) return null;
+    let bestIndex = 0;
+    let bestDistance = haversineDistance(effectiveCoordinates, displaySteps[0].location);
+    for (let i = 1; i < displaySteps.length; i += 1) {
+      const d = haversineDistance(effectiveCoordinates, displaySteps[i].location);
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestIndex = i;
+      }
+    }
+    return { step: displaySteps[bestIndex], distance: bestDistance, index: bestIndex };
+  }, [displaySteps, effectiveCoordinates]);
+
+  useEffect(() => {
+    if (!followUser || !route || !selected || routeLoading) return;
+    if (routeDeviationMeters == null || routeDeviationMeters <= 150) return;
+    const now = Date.now();
+    if (now - lastAutoRerouteAtRef.current < 30_000) return;
+    lastAutoRerouteAtRef.current = now;
+    void calculateRoute(selected, { fit: false, preserveFollow: true });
+  }, [calculateRoute, followUser, route, routeDeviationMeters, routeLoading, selected]);
 
   const gpsText =
     permission !== 'granted'
@@ -264,7 +380,11 @@ export default function MapScreen() {
           route={route?.geometry ?? null}
           markers={markers}
           location={effectiveCoordinates}
+          heading={isManualLocation ? null : heading}
+          accuracy={isManualLocation ? null : accuracy}
+          fitTo={fitTo}
           onRegionChange={(nextCenter, nextZoom) => {
+            setFollowUser(false);
             setCenter(nextCenter);
             setZoom(nextZoom);
           }}
@@ -351,19 +471,64 @@ export default function MapScreen() {
               {routeLoading ? (
                 <LoadingState label="Calculando ruta por carretera…" compact />
               ) : route ? (
-                <View style={[styles.routeSummary, { backgroundColor: colors.accentSoft }]}>
-                  <View style={styles.routeMetric}>
-                    <Route size={16} color={colors.accent} />
-                    <AppText variant="bodyStrong">{formatDistance(route.distance, settings.units)}</AppText>
-                  </View>
-                  <View style={styles.routeMetric}>
-                    <Navigation size={16} color={colors.accent} />
-                    <AppText variant="bodyStrong">{formatDuration(route.duration)}</AppText>
-                  </View>
-                  <AppText variant="caption" color="muted">
-                    {route.steps.length} indicaciones · OSRM
-                  </AppText>
-                </View>
+                <>
+                  <PressableScale
+                    onPress={() => {
+                      setFollowUser(false);
+                      setFitTo({
+                        points: route.geometry.length ? route.geometry : [selected!],
+                        token: Date.now(),
+                      });
+                    }}
+                    scaleTo={0.99}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ver ruta completa en el mapa"
+                    style={[styles.routeSummary, { backgroundColor: colors.accentSoft }]}
+                  >
+                    <View style={styles.routeMetric}>
+                      <Route size={16} color={colors.accent} />
+                      <AppText variant="bodyStrong">{formatDistance(route.distance, settings.units)}</AppText>
+                    </View>
+                    <View style={styles.routeMetric}>
+                      <Navigation size={16} color={colors.accent} />
+                      <AppText variant="bodyStrong">{formatDuration(route.duration)}</AppText>
+                    </View>
+                    <AppText variant="caption" color="muted">
+                      {route.steps.length} indicaciones · OSRM · Ver ruta
+                    </AppText>
+                  </PressableScale>
+                  {followUser && selected && routeDeviationMeters != null && routeDeviationMeters > 120 ? (
+                    <PressableScale
+                      onPress={() => void calculateRoute(selected)}
+                      scaleTo={0.98}
+                      accessibilityRole="button"
+                      accessibilityLabel="Recalcular ruta por desvío"
+                      style={[styles.routeDeviation, { backgroundColor: colors.amberSoft, borderColor: colors.border }]}
+                    >
+                      <AppText variant="caption" color="amber">
+                        {routeDeviationMeters > 150 && routeLoading
+                          ? 'Recalculando ruta…'
+                          : 'Parece que te desviaste de la ruta.'}
+                      </AppText>
+                      <AppText variant="micro" color="secondary">
+                        {routeDeviationMeters > 150 ? 'Recalculando automáticamente' : 'Toca para recalcular'}
+                      </AppText>
+                    </PressableScale>
+                  ) : null}
+                  {followUser && nextStepInfo ? (
+                    <View style={[styles.nextStep, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}>
+                      <AppText variant="micro" color="accent">
+                        SIGUIENTE INDICACIÓN
+                      </AppText>
+                      <AppText variant="bodyStrong" numberOfLines={2}>
+                        {nextStepInfo.step.instruction}
+                      </AppText>
+                      <AppText variant="caption" color="muted">
+                        A {formatDistance(nextStepInfo.distance, settings.units)}
+                      </AppText>
+                    </View>
+                  ) : null}
+                </>
               ) : routeError ? (
                 <View style={[styles.routeError, { backgroundColor: colors.amberSoft }]}>
                   <AppText variant="caption" color="amber">
@@ -385,9 +550,19 @@ export default function MapScreen() {
                   </AppText>
                 </PressableScale>
                 <PressableScale
+                  onPress={() => openExternalMaps(selected)}
+                  scaleTo={0.94}
+                  accessibilityRole="button"
+                  accessibilityLabel="Abrir en aplicación de mapas"
+                  style={[styles.iconAction, { borderColor: colors.border }]}
+                >
+                  <ExternalLink size={18} color={colors.textSecondary} />
+                </PressableScale>
+                <PressableScale
                   onPress={() => void centerOnUser()}
                   scaleTo={0.94}
                   accessibilityRole="button"
+                  accessibilityLabel="Centrar en mi ubicación"
                   style={[styles.iconAction, { borderColor: colors.border }]}
                 >
                   <LocateFixed size={18} color={colors.textSecondary} />
@@ -396,16 +571,26 @@ export default function MapScreen() {
                   <PressableScale
                     onPress={() => {
                       removePlace(selected.id);
-                      setSelected(null);
-                      setRoute(null);
+                      clearDestination();
                     }}
                     scaleTo={0.94}
                     accessibilityRole="button"
+                    accessibilityLabel="Quitar lugar guardado"
                     style={[styles.iconAction, { borderColor: colors.border }]}
                   >
                     <Trash2 size={18} color={colors.danger} />
                   </PressableScale>
-                ) : null}
+                ) : (
+                  <PressableScale
+                    onPress={clearDestination}
+                    scaleTo={0.94}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar destino"
+                    style={[styles.iconAction, { borderColor: colors.border }]}
+                  >
+                    <X size={18} color={colors.textSecondary} />
+                  </PressableScale>
+                )}
               </View>
 
               {route && route.steps.length > 0 ? (
@@ -427,21 +612,31 @@ export default function MapScreen() {
                   </PressableScale>
                   {stepsOpen ? (
                     <ScrollView style={styles.stepsList} nestedScrollEnabled>
-                      {route.steps
-                        .filter((step) => step.type !== 'arrive' || step.distance > 0)
-                        .slice(0, 16)
-                        .map((step, index) => (
+                      {displaySteps.map((step, index) => {
+                        const active = followUser && nextStepInfo?.index === index;
+                        return (
                           <View
                             key={`${step.location.latitude}-${step.location.longitude}-${index}`}
-                            style={[styles.stepRow, { borderTopColor: colors.border }]}
+                            style={[
+                              styles.stepRow,
+                              {
+                                borderTopColor: colors.border,
+                                backgroundColor: active ? colors.accentSoft : 'transparent',
+                              },
+                            ]}
                           >
-                            <View style={[styles.stepIndex, { backgroundColor: colors.surfaceHigh }]}>
-                              <AppText variant="micro" color="muted">
+                            <View
+                              style={[
+                                styles.stepIndex,
+                                { backgroundColor: active ? colors.accent : colors.surfaceHigh },
+                              ]}
+                            >
+                              <AppText variant="micro" color={active ? 'white' : 'muted'}>
                                 {index + 1}
                               </AppText>
                             </View>
                             <View style={styles.stepText}>
-                              <AppText variant="caption" color="secondary">
+                              <AppText variant="caption" color={active ? 'text' : 'secondary'}>
                                 {step.instruction}
                               </AppText>
                               <AppText variant="micro" color="muted">
@@ -450,7 +645,8 @@ export default function MapScreen() {
                               </AppText>
                             </View>
                           </View>
-                        ))}
+                        );
+                      })}
                     </ScrollView>
                   ) : null}
                 </>
@@ -479,13 +675,19 @@ export default function MapScreen() {
               {permission !== 'granted' ? (
                 <View style={styles.permissionRow}>
                   <Chip
-                    label="Activar ubicación"
+                    label={permission === 'denied' && !canAskAgain ? 'Abrir ajustes' : 'Activar ubicación'}
                     selected
-                    onPress={() => void requestPermission()}
+                    onPress={() =>
+                      permission === 'denied' && !canAskAgain
+                        ? openSystemSettings()
+                        : void requestPermission()
+                    }
                     compact
                   />
                   <AppText variant="micro" color="muted">
-                    Necesaria para rutas desde tu posición.
+                    {permission === 'denied' && !canAskAgain
+                      ? 'Permiso denegado. Actívalo en Ajustes del sistema para rutas GPS.'
+                      : 'Necesaria para rutas desde tu posición.'}
                   </AppText>
                 </View>
               ) : null}
@@ -532,6 +734,20 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   routeMetric: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  routeDeviation: {
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 2,
+  },
+  nextStep: {
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 2,
+  },
   routeError: { padding: spacing.md, borderRadius: radius.md, marginTop: spacing.md },
   sheetActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
   primaryAction: {

@@ -144,7 +144,7 @@ export default function SettingsScreen() {
           <SettingField
             icon={Map}
             title="Estilo del mapa"
-            description="El modo automático usa el tema oscuro de día y de noche según la app."
+            description="Automático usa teselas claras para mejor legibilidad en el auto. Puedes forzar oscuro o claro."
           >
             <SegmentedControl options={MAP_OPTIONS} value={settings.mapStyle} onChange={(value) =>
               updateSettings({ mapStyle: value })

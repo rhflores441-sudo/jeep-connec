@@ -47,6 +47,7 @@ import {
   type SpotifyTrack,
 } from '@/services/spotify';
 import { useLibrary } from '@/store/library';
+import { useSettings } from '@/store/settings';
 import { ApiError } from '@/utils/http';
 
 export type SpotifyStatus = 'unconfigured' | 'initializing' | 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -87,10 +88,12 @@ const TOKEN_REDIRECT_URI = getTokenRedirectUri();
 const PROXY_CONFIGURED = SPOTIFY.authProxyUrl.length > 0;
 
 export function SpotifyProvider({ children }: { children: ReactNode }) {
-  const configured = isSpotifyConfigured();
+  const { settings } = useSettings();
+  const clientId = settings.spotifyClientId.trim() || SPOTIFY.clientId;
+  const configured = isSpotifyConfigured(clientId);
   const [request, response, promptAsync] = useAuthRequest(
     {
-      clientId: SPOTIFY.clientId,
+      clientId,
       scopes: [...SPOTIFY.scopes],
       redirectUri: APP_RETURN_URI,
       responseType: ResponseType.Code,
@@ -136,7 +139,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         return null;
       }
       try {
-        const refreshed = await refreshTokens(current.refreshToken);
+        const refreshed = await refreshTokens(current.refreshToken, clientId);
         tokensRef.current = refreshed;
         await saveTokens(refreshed);
         setStatus('connected');
@@ -151,7 +154,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         return null;
       }
     },
-    [configured, disconnect],
+    [clientId, configured, disconnect],
   );
 
   const withToken = useCallback(
@@ -213,6 +216,13 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         setStatus('disconnected');
         return;
       }
+      if (stored.clientId && stored.clientId !== clientId) {
+        // Los tokens pertenecen a otro Client ID: no son reutilizables.
+        await clearTokens();
+        tokensRef.current = null;
+        if (active) setStatus('disconnected');
+        return;
+      }
       let tokens = stored;
       if (tokens.expiresAt - Date.now() <= 60_000) {
         if (!tokens.refreshToken) {
@@ -220,7 +230,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
           return;
         }
         try {
-          tokens = await refreshTokens(tokens.refreshToken);
+          tokens = await refreshTokens(tokens.refreshToken, clientId);
           await saveTokens(tokens);
         } catch {
           await disconnect();
@@ -238,7 +248,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [configured, disconnect, loadProfile]);
+  }, [clientId, configured, disconnect, loadProfile]);
 
   // Resultado del flujo OAuth.
   useEffect(() => {
@@ -259,7 +269,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     processedCodeRef.current = code;
     setStatus('connecting');
     setError(null);
-    exchangeCode(code, request.codeVerifier, TOKEN_REDIRECT_URI)
+    exchangeCode(code, request.codeVerifier, TOKEN_REDIRECT_URI, clientId)
       .then(async (tokens) => {
         tokensRef.current = tokens;
         await saveTokens(tokens);
@@ -275,12 +285,12 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
             : 'No se pudo completar la autenticación con Spotify. Revisa la Redirect URI y tu conexión.',
         );
       });
-  }, [response, request, loadProfile, syncPlayback]);
+  }, [response, request, clientId, loadProfile, syncPlayback]);
 
   const connect = useCallback(async () => {
     if (!configured) {
       setStatus('unconfigured');
-      setError('Falta EXPO_PUBLIC_SPOTIFY_CLIENT_ID en el archivo .env. Consulta docs/SPOTIFY.md.');
+      setError('Falta el Client ID de Spotify. Pégalo en Ajustes → Spotify y vuelve a intentarlo.');
       return;
     }
     setError(null);

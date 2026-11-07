@@ -29,6 +29,8 @@ export type AppSettings = {
   mapStyle: MapStyle;
   equalizerPreset: string;
   equalizerBands: number[];
+  /** Client ID público de Spotify que el usuario pega en Ajustes. */
+  spotifyClientId: string;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mapStyle: 'auto',
   equalizerPreset: 'flat',
   equalizerBands: [0, 0, 0, 0, 0, 0, 0],
+  spotifyClientId: '',
 };
 
 type SettingsContextValue = {
@@ -67,6 +70,8 @@ function parseSettings(raw: string | null): AppSettings {
           ? parsed.equalizerBands.map((band) => Math.max(-8, Math.min(8, Number(band) || 0)))
           : DEFAULT_SETTINGS.equalizerBands,
       volume: typeof parsed.volume === 'number' ? Math.max(0, Math.min(1, parsed.volume)) : DEFAULT_SETTINGS.volume,
+      spotifyClientId:
+        typeof parsed.spotifyClientId === 'string' ? parsed.spotifyClientId.trim() : DEFAULT_SETTINGS.spotifyClientId,
     };
   } catch {
     return DEFAULT_SETTINGS;

@@ -46,9 +46,15 @@ Puntos clave:
 
 ## 2. Crear la app en Spotify
 
+> Este proyecto tiene un proxy ya desplegado en `https://jeep-connect-spotify.jeep-connect-spotify.workers.dev`. Si lo usas, la Redirect URI que debes registrar es exactamente:
+>
+> ```text
+> https://jeep-connect-spotify.jeep-connect-spotify.workers.dev/callback
+> ```
+
 1. Entra a <https://developer.spotify.com/dashboard>.
 2. Crea una app (nombre y descripción libres).
-3. En **Redirect URIs** agrega exactamente:
+3. En **Redirect URIs** agrega exactamente la URI del proxy (o la tuya):
 
    ```text
    https://TU-PROXY.example.com/callback
@@ -83,6 +89,16 @@ EXPO_PUBLIC_SPOTIFY_AUTH_PROXY_URL=https://jeep-connect-spotify.tu-subdominio.wo
 Sin proxy, `EXPO_PUBLIC_SPOTIFY_AUTH_PROXY_URL` queda vacío y la app usa directamente `https://accounts.spotify.com/authorize` con la URI registrada. Eso solo funciona si esa URI es accesible desde el navegador del dispositivo (por ejemplo, un loopback en web/escritorio). **En un teléfono no funcionará con `127.0.0.1`**, porque apunta al propio teléfono.
 
 Reinicia el servidor de Expo después de cambiar `.env`; las variables `EXPO_PUBLIC_*` se incorporan al bundle en tiempo de build.
+
+### Client ID en tiempo de ejecución
+
+El APK instalado no necesita que el Client ID esté compilado. En **Ajustes → Spotify → Configuración OAuth** hay un campo para pegar el Client ID:
+
+1. Copia el Client ID en el dashboard de Spotify.
+2. Pégalo en el campo y pulsa **Guardar Client ID**.
+3. Pulsa **Conectar con Spotify**.
+
+El valor se guarda en AsyncStorage del dispositivo (es un dato público, no un secreto) y tiene prioridad sobre `EXPO_PUBLIC_SPOTIFY_CLIENT_ID`. Al cambiarlo, la app borra los tokens emitidos con el Client ID anterior porque dejan de ser válidos.
 
 ---
 
@@ -207,11 +223,12 @@ La app no solicita scopes de escritura de playlists ni de perfil social. Si agre
 ## 6. Dónde se guardan los tokens
 
 - `expo-secure-store` (Keychain en iOS, Keystore en Android).
-- Se guardan `access_token`, `refresh_token`, `expiresAt` y `scope`.
+- Se guardan `access_token`, `refresh_token`, `expiresAt`, `scope` y el Client ID que emitió los tokens.
 - El perfil no sensible (nombre, imagen) se guarda en AsyncStorage.
 - Al desconectar se borran ambos.
 - El token se renueva automáticamente si faltan menos de 60 segundos para expirar.
 - Si la renovación falla, la app borra la sesión y pide volver a conectar.
+- Si el Client ID cambia, los tokens anteriores se descartan automáticamente.
 
 No hay backend propio que reciba tokens.
 
@@ -241,7 +258,8 @@ Referencias oficiales:
 
 | Síntoma | Causa probable | Solución |
 | --- | --- | --- |
-| “Falta EXPO_PUBLIC_SPOTIFY_CLIENT_ID” | `.env` ausente o servidor sin reiniciar | Crea `.env`, reinicia `npx expo start`. |
+| “Falta el Client ID de Spotify” | No hay Client ID guardado ni variable de entorno | Pégalo en Ajustes → Spotify → Configuración OAuth y pulsa Guardar Client ID. |
+| `invalid_client` al canjear el código | Client ID inexistente, revocado o de otra app | Copia de nuevo el Client ID del dashboard; no inventes uno. |
 | `INVALID_CLIENT: Invalid redirect URI` | URI distinta a la registrada | Copia la URI exacta del dashboard; debe ser HTTPS y terminar en `/callback`. |
 | La app vuelve pero no conecta | El proxy no redirige al esquema propio | Verifica `/callback` y que `APP_RETURN_URI` sea `jeepconnect://spotify-callback`. |
 | `invalid_grant` al canjear | `redirect_uri` distinto o código ya usado | El canje debe usar la URI HTTPS registrada; no reutilices códigos. |
@@ -256,7 +274,8 @@ Referencias oficiales:
 
 - [ ] Redirect URI HTTPS registrada y verificada.
 - [ ] Proxy desplegado con `APP_RETURN_URI` y `SPOTIFY_REDIRECT_URI` correctos.
-- [ ] `EXPO_PUBLIC_*` configuradas en EAS (`preview` y `production`).
+- [ ] Client ID pegado en la app o definido en `EXPO_PUBLIC_SPOTIFY_CLIENT_ID`.
+- [ ] `EXPO_PUBLIC_*` configuradas en EAS (`preview` y `production`) si compilas en la nube.
 - [ ] Client Secret **no** incluido en el repositorio ni en el bundle.
 - [ ] Cuenta dueña con Premium y usuarios de prueba agregados.
 - [ ] Scopes revisados y consentimiento probado desde cero.

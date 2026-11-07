@@ -1,9 +1,11 @@
 import { Image } from 'expo-image';
 import {
+  Check,
   CircleCheck,
   Crown,
   Disc3,
   ExternalLink,
+  KeyRound,
   Link2,
   LoaderCircle,
   Lock,
@@ -13,11 +15,12 @@ import {
   Smartphone,
   TriangleAlert,
 } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
 import { Alert, Linking, Platform, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { radius, spacing } from '@/constants/theme';
 import { useSpotify } from '@/store/spotify';
-import { useTheme } from '@/store/settings';
+import { useSettings, useTheme } from '@/store/settings';
 import { AppText } from '@/components/ui/AppText';
 import { Card, CardDivider } from '@/components/ui/Card';
 import { Header } from '@/components/ui/Header';
@@ -26,13 +29,28 @@ import { ListRow } from '@/components/ui/ListRow';
 import { PressableScale } from '@/components/ui/PressableScale';
 import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { TextField } from '@/components/ui/TextField';
 
 const SPOTIFY_DASHBOARD = 'https://developer.spotify.com/dashboard';
 const SPOTIFY_PREMIUM = 'https://www.spotify.com/premium/';
 
 export default function SpotifySettingsScreen() {
   const { colors, isDark } = useTheme();
+  const { settings, updateSettings } = useSettings();
   const spotify = useSpotify();
+  const [clientIdDraft, setClientIdDraft] = useState(settings.spotifyClientId);
+  const [clientIdSaved, setClientIdSaved] = useState(false);
+
+  useEffect(() => {
+    setClientIdDraft(settings.spotifyClientId);
+  }, [settings.spotifyClientId]);
+
+  const saveClientId = () => {
+    const cleaned = clientIdDraft.trim();
+    setClientIdDraft(cleaned);
+    updateSettings({ spotifyClientId: cleaned });
+    setClientIdSaved(true);
+  };
 
   const connected = spotify.status === 'connected';
   const busy = spotify.status === 'connecting' || spotify.status === 'initializing';
@@ -247,13 +265,54 @@ export default function SpotifySettingsScreen() {
             <View style={styles.configText}>
               <AppText variant="bodyStrong">Client ID</AppText>
               <AppText variant="caption" color="muted">
-                Variable EXPO_PUBLIC_SPOTIFY_CLIENT_ID del archivo .env
+                Se guarda solo en este dispositivo. No se envía a ningún servidor propio.
               </AppText>
             </View>
             <StatusBadge
               label={spotify.configured ? 'Configurado' : 'Faltante'}
               tone={spotify.configured ? 'good' : 'danger'}
             />
+          </View>
+          <View style={styles.clientIdBlock}>
+            <TextField
+              icon={KeyRound}
+              value={clientIdDraft}
+              onChangeText={(text) => {
+                setClientIdDraft(text);
+                setClientIdSaved(false);
+              }}
+              onClear={() => {
+                setClientIdDraft('');
+                setClientIdSaved(false);
+              }}
+              placeholder="Pega aquí tu Client ID"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="off"
+              spellCheck={false}
+              returnKeyType="done"
+              onSubmitEditing={saveClientId}
+            />
+            <AppText variant="caption" color="muted">
+              Cópialo en developer.spotify.com/dashboard → tu app → Settings. Es el Client ID, no
+              el Client Secret; el flujo PKCE no usa secreto.
+            </AppText>
+            <PressableScale
+              onPress={saveClientId}
+              accessibilityRole="button"
+              scaleTo={0.97}
+              style={[styles.saveButton, { backgroundColor: colors.green }]}
+            >
+              <Check size={16} color={colors.white} />
+              <AppText variant="bodyStrong" color="white">
+                Guardar Client ID
+              </AppText>
+            </PressableScale>
+            {clientIdSaved ? (
+              <AppText variant="caption" color="green">
+                Guardado. Ahora toca «Conectar con Spotify».
+              </AppText>
+            ) : null}
           </View>
           <CardDivider />
           <View style={styles.redirectBlock}>
@@ -324,6 +383,25 @@ export default function SpotifySettingsScreen() {
               </View>
             ) : null}
           </View>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Puesta en marcha" subtitle="Tres pasos, una sola vez" icon={KeyRound} />
+        <Card>
+          <Requirement
+            title="1. Crea tu app en Spotify"
+            text="Entra en developer.spotify.com/dashboard con la misma cuenta Premium que usarás en el auto y crea una app."
+          />
+          <Requirement
+            title="2. Registra la Redirect URI"
+            text={`En la app de Spotify abre Settings → Redirect URIs y agrega exactamente: ${spotify.redirectUri}`}
+          />
+          <Requirement
+            title="3. Pega el Client ID"
+            text="Copia el Client ID desde Settings, pégalo en la tarjeta Configuración OAuth y pulsa Guardar Client ID. Después, Conectar con Spotify."
+            last
+          />
         </Card>
       </View>
 
@@ -470,7 +548,7 @@ function statusTitle(status: string, configured: boolean): string {
 
 function statusSubtitle(status: string, configured: boolean): string {
   if (!configured) {
-    return 'Agrega el Client ID en .env para habilitar la autenticación PKCE.';
+    return 'Pega tu Client ID en Configuración OAuth para habilitar la autenticación PKCE.';
   }
   if (status === 'initializing') return 'Buscando tokens seguros en este dispositivo…';
   if (status === 'connecting') return 'Completa la autorización en tu navegador.';
@@ -548,6 +626,16 @@ const styles = StyleSheet.create({
   section: { marginTop: spacing.xxl, gap: spacing.md },
   configRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   configText: { flex: 1, gap: 2 },
+  clientIdBlock: { gap: spacing.sm },
+  saveButton: {
+    minHeight: 42,
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+  },
   redirectBlock: { gap: spacing.sm },
   redirectHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   redirectValue: { borderRadius: radius.md, borderWidth: 1, padding: spacing.md },

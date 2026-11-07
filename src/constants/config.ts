@@ -29,7 +29,9 @@ export const API = {
     'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
   tileLight:
     process.env.EXPO_PUBLIC_TILE_URL_LIGHT ??
-    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  /** Proveedor de respaldo si el proveedor principal no responde en el dispositivo. */
+  tileFallback: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
 } as const;
 
 export const SPOTIFY = {

@@ -69,6 +69,10 @@ export function boundsOf(points: Coordinate[]): { north: number; south: number; 
   );
 }
 
+export function clampZoom(zoom: number): number {
+  return Math.max(MAP.minZoom, Math.min(MAP.maxZoom, zoom));
+}
+
 /** Zoom que permite ver todos los puntos dentro del viewport. */
 export function fitZoom(
   points: Coordinate[],
@@ -90,7 +94,7 @@ export function fitZoom(
   const dx = Math.abs(southEast.x - northWest.x) || 0.00001;
   const dy = Math.abs(southEast.y - northWest.y) || 0.00001;
   const zoom = Math.min(Math.log2(width / dx), Math.log2(height / dy));
-  return { center, zoom: Math.max(MAP.minZoom, Math.min(MAP.maxZoom, zoom)) };
+  return { center, zoom: clampZoom(zoom) };
 }
 
 export function formatCoordinate({ latitude, longitude }: Coordinate): string {
