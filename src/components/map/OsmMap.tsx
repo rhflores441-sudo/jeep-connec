@@ -69,7 +69,7 @@ export function OsmMap({
   const { colors } = useTheme();
   const [view, setView] = useState<ViewState>({ center, zoom });
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [tileAttempt, setTileAttempt] = useState<'primary' | 'fallback'>('primary');
+  const [tileAttempt, setTileAttempt] = useState<'primary' | 'direct' | 'fallback'>('primary');
   const [tileError, setTileError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [tilesReady, setTilesReady] = useState(false);
@@ -112,25 +112,33 @@ export function OsmMap({
     setTileError(false);
   }, [dark]);
 
+  const advanceTileAttempt = useCallback(() => {
+    failedTilesRef.current.clear();
+    tileFailureCountRef.current = 0;
+    tilesLoadedRef.current = false;
+    setTilesReady(false);
+    if (tileAttemptRef.current === 'primary') {
+      setTileAttempt('direct');
+      return true;
+    }
+    if (tileAttemptRef.current === 'direct') {
+      setTileAttempt('fallback');
+      return true;
+    }
+    return false;
+  }, []);
+
   useEffect(() => {
     if (size.width === 0 || size.height === 0 || tileError || tilesReady) return;
     if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
     loadTimeoutRef.current = setTimeout(() => {
       if (tilesLoadedRef.current || tileError) return;
-      if (tileAttemptRef.current === 'primary') {
-        failedTilesRef.current.clear();
-        tileFailureCountRef.current = 0;
-        tilesLoadedRef.current = false;
-        setTilesReady(false);
-        setTileAttempt('fallback');
-        return;
-      }
-      setTileError(true);
+      if (!advanceTileAttempt()) setTileError(true);
     }, 9000);
     return () => {
       if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
     };
-  }, [size.height, size.width, tileAttempt, tileError, tilesReady, reloadToken]);
+  }, [advanceTileAttempt, size.height, size.width, tileAttempt, tileError, tilesReady, reloadToken]);
 
   const finishGesture = useCallback(() => {
     onRegionChangeRef.current?.(viewRef.current.center, viewRef.current.zoom);
@@ -147,16 +155,8 @@ export function OsmMap({
     failedTilesRef.current.add(key);
     tileFailureCountRef.current += 1;
     if (tileFailureCountRef.current < 3) return;
-    if (tileAttemptRef.current === 'primary') {
-      failedTilesRef.current.clear();
-      tileFailureCountRef.current = 0;
-      tilesLoadedRef.current = false;
-      setTilesReady(false);
-      setTileAttempt('fallback');
-      return;
-    }
-    setTileError(true);
-  }, []);
+    if (!advanceTileAttempt()) setTileError(true);
+  }, [advanceTileAttempt]);
 
   const retryTiles = useCallback(() => {
     failedTilesRef.current.clear();
@@ -246,7 +246,8 @@ export function OsmMap({
       : dark
         ? API.tileDark
         : API.tileLight;
-    const template = tileAttempt === 'fallback' ? API.tileFallback : primaryTemplate;
+    const directTemplate = dark ? API.tileDark : API.tileLight;
+    const template = tileAttempt === 'primary' ? primaryTemplate : tileAttempt === 'direct' ? directTemplate : API.tileFallback;
     const result: { key: string; uri: string; x: number; y: number; size: number }[] = [];
 
     for (let x = startX; x <= endX; x += 1) {
